@@ -172,6 +172,18 @@ list_sessions() {
     echo ""
 }
 
+# Setup signal handlers for clean detachment
+setup_signal_handlers() {
+    local name="$1"
+
+    # On SIGHUP (terminal closed), just exit cleanly
+    # The dtach master process keeps running
+    trap 'exit 0' HUP
+
+    # On SIGTERM, exit cleanly
+    trap 'exit 0' TERM
+}
+
 # Start or attach to a session
 start_session() {
     local name="$1"
@@ -181,6 +193,9 @@ start_session() {
     # Check current status
     local status
     status=$(get_session_status "$name")
+
+    # Setup handlers before attaching
+    setup_signal_handlers "$name"
 
     case "$status" in
         ZOMBIE|DEAD)
