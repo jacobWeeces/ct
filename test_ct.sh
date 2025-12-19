@@ -51,11 +51,23 @@ test_killall() {
     fi
 }
 
+test_list() {
+    echo -n "Test: --list runs without error... "
+    output=$($CT_BIN --list 2>&1)
+    if echo "$output" | grep -q "Sessions in"; then
+        echo "PASS"
+    else
+        echo "FAIL (output: $output)"
+        ((FAILURES++))
+    fi
+}
+
 # Run tests
 test_help
 test_no_args
 test_status_missing
 test_killall
+test_list
 
 echo ""
 if [[ $FAILURES -eq 0 ]]; then

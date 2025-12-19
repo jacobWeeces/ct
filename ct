@@ -131,6 +131,47 @@ cleanup_all() {
     echo "Done. Your ~/.dtach/ sessions were NOT touched."
 }
 
+# List all sessions with their status
+list_sessions() {
+    echo "Sessions in ${CT_DIR}:"
+    echo ""
+
+    local found=0
+    for sock_file in "${CT_DIR}"/*.sock; do
+        [[ -e "$sock_file" ]] || continue
+        found=1
+        local name
+        name=$(basename "$sock_file" .sock)
+        local status
+        status=$(get_session_status "$name")
+        local pid=""
+        if [[ -e "${CT_DIR}/${name}.pid" ]]; then
+            pid=$(cat "${CT_DIR}/${name}.pid" 2>/dev/null)
+        fi
+
+        case "$status" in
+            ALIVE)  printf "  %-20s %s (pid: %s)\n" "$name" "✓ ALIVE" "$pid" ;;
+            DEAD)   printf "  %-20s %s\n" "$name" "✗ DEAD (needs cleanup)" ;;
+            ZOMBIE) printf "  %-20s %s (pid: %s)\n" "$name" "⚠ ZOMBIE (will auto-clean)" "$pid" ;;
+        esac
+    done
+
+    # Also check for PID files without sockets
+    for pid_file in "${CT_DIR}"/*.pid; do
+        [[ -e "$pid_file" ]] || continue
+        local name
+        name=$(basename "$pid_file" .pid)
+        [[ -e "${CT_DIR}/${name}.sock" ]] && continue  # Already handled
+        found=1
+        printf "  %-20s %s\n" "$name" "✗ ORPHAN (no socket)"
+    done
+
+    if [[ $found -eq 0 ]]; then
+        echo "  (no sessions)"
+    fi
+    echo ""
+}
+
 usage() {
     cat <<EOF
 ct - ConnectTerm: Reliable terminal session manager
@@ -166,6 +207,10 @@ main() {
             ;;
         -x|--killall)
             cleanup_all
+            exit 0
+            ;;
+        -l|--list)
+            list_sessions
             exit 0
             ;;
         -k|--kill)
