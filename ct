@@ -75,6 +75,62 @@ get_session_status() {
     echo "ALIVE"
 }
 
+# Clean up a session (kill process, remove files)
+cleanup_session() {
+    local name="$1"
+    local sock_file="${CT_DIR}/${name}.sock"
+    local pid_file="${CT_DIR}/${name}.pid"
+
+    if [[ -e "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && is_process_alive "$pid"; then
+            # Kill the process tree
+            pkill -TERM -P "$pid" 2>/dev/null || true
+            kill -TERM "$pid" 2>/dev/null || true
+            sleep 0.2
+            # Force kill if still alive
+            if is_process_alive "$pid"; then
+                pkill -KILL -P "$pid" 2>/dev/null || true
+                kill -KILL "$pid" 2>/dev/null || true
+            fi
+        fi
+        rm -f "$pid_file"
+    fi
+
+    rm -f "$sock_file"
+}
+
+# Clean up all ct-managed sessions ONLY (never touches ~/.dtach/)
+cleanup_all() {
+    echo "Cleaning up all ct sessions in ${CT_DIR}..."
+    echo "(Your ~/.dtach/ sessions are untouched)"
+    echo ""
+
+    # ONLY clean up sessions WE manage (in ~/.ct/)
+    local cleaned=0
+    for pid_file in "${CT_DIR}"/*.pid; do
+        [[ -e "$pid_file" ]] || continue
+        local name
+        name=$(basename "$pid_file" .pid)
+        echo "  Cleaning: $name"
+        cleanup_session "$name"
+        ((cleaned++))
+    done
+
+    # Only kill dtach processes pointing to OUR directory, not ~/.dtach/
+    pkill -9 -f "dtach.*\.ct/" 2>/dev/null || true
+
+    # Clean up stale socket files in OUR directory only
+    rm -f "${CT_DIR}"/*.sock 2>/dev/null || true
+
+    if [[ $cleaned -eq 0 ]]; then
+        echo "  (no ct sessions to clean)"
+    fi
+    echo ""
+    echo "Done. Your ~/.dtach/ sessions were NOT touched."
+}
+
 usage() {
     cat <<EOF
 ct - ConnectTerm: Reliable terminal session manager
@@ -106,6 +162,19 @@ main() {
     case "$1" in
         -h|--help)
             usage
+            exit 0
+            ;;
+        -x|--killall)
+            cleanup_all
+            exit 0
+            ;;
+        -k|--kill)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --kill requires a session name"
+                exit 1
+            fi
+            cleanup_session "$2"
+            echo "Session '$2' killed."
             exit 0
             ;;
         *)

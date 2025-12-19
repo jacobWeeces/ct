@@ -41,10 +41,21 @@ test_status_missing() {
     fi
 }
 
+test_killall() {
+    echo -n "Test: --killall runs without error... "
+    if $CT_BIN --killall >/dev/null 2>&1; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        ((FAILURES++))
+    fi
+}
+
 # Run tests
 test_help
 test_no_args
 test_status_missing
+test_killall
 
 echo ""
 if [[ $FAILURES -eq 0 ]]; then
