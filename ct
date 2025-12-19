@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CT_DIR="${HOME}/.ct"
+DTACH_BIN="/opt/homebrew/bin/dtach"
+DEFAULT_SHELL="${SHELL:-/bin/zsh}"
+
+usage() {
+    cat <<EOF
+ct - ConnectTerm: Reliable terminal session manager
+
+Usage:
+    ct <session>            Attach or create session
+    ct -l, --list           List all sessions with status
+    ct -k, --kill <name>    Kill specific session
+    ct -x, --killall        Kill all sessions and zombies
+    ct -h, --help           Show this help
+
+Examples:
+    ct work                 Start or attach to 'work' session
+    ct -l                   Show all sessions
+    ct -k work              Kill 'work' session
+EOF
+}
+
+# Ensure CT_DIR exists
+mkdir -p "$CT_DIR"
+
+# Main entry point (to be expanded)
+main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 1
+    fi
+
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Not yet implemented"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
