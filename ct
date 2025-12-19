@@ -172,6 +172,45 @@ list_sessions() {
     echo ""
 }
 
+# Start or attach to a session
+start_session() {
+    local name="$1"
+    local sock_file="${CT_DIR}/${name}.sock"
+    local pid_file="${CT_DIR}/${name}.pid"
+
+    # Check current status
+    local status
+    status=$(get_session_status "$name")
+
+    case "$status" in
+        ZOMBIE|DEAD)
+            echo "Cleaning up stale session '$name'..."
+            cleanup_session "$name"
+            status="MISSING"
+            ;;
+    esac
+
+    if [[ "$status" == "ALIVE" ]]; then
+        echo "Attaching to existing session '$name'..."
+        exec "$DTACH_BIN" -a "$sock_file" -r winch
+    else
+        echo "Creating new session '$name'..."
+        # Start dtach and capture its PID
+        "$DTACH_BIN" -n "$sock_file" -r winch "$DEFAULT_SHELL"
+
+        # Find the dtach master process and save PID
+        sleep 0.3
+        local pid
+        pid=$(pgrep -f "dtach -n ${sock_file}" | head -1)
+        if [[ -n "$pid" ]]; then
+            echo "$pid" > "$pid_file"
+        fi
+
+        # Now attach
+        exec "$DTACH_BIN" -a "$sock_file" -r winch
+    fi
+}
+
 usage() {
     cat <<EOF
 ct - ConnectTerm: Reliable terminal session manager
@@ -222,9 +261,13 @@ main() {
             echo "Session '$2' killed."
             exit 0
             ;;
-        *)
-            echo "Not yet implemented"
+        -*)
+            echo "Unknown option: $1"
+            usage
             exit 1
+            ;;
+        *)
+            start_session "$1"
             ;;
     esac
 }
