@@ -5,6 +5,76 @@ CT_DIR="${HOME}/.ct"
 DTACH_BIN="/opt/homebrew/bin/dtach"
 DEFAULT_SHELL="${SHELL:-/bin/zsh}"
 
+# Check if a process is alive and not a zombie
+is_process_alive() {
+    local pid="$1"
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+    # Check process exists and is not zombie (state Z)
+    if ps -p "$pid" -o state= 2>/dev/null | grep -qv "Z"; then
+        return 0
+    fi
+    return 1
+}
+
+# Check if process is healthy (not spinning at 100% CPU for too long)
+is_process_healthy() {
+    local pid="$1"
+    if ! is_process_alive "$pid"; then
+        return 1
+    fi
+    # Get CPU percentage - if over 90% it's likely a zombie spinning
+    local cpu
+    cpu=$(ps -p "$pid" -o %cpu= 2>/dev/null | tr -d ' ' | cut -d. -f1)
+    if [[ -n "$cpu" && "$cpu" -gt 90 ]]; then
+        # Check if it's been running a long time (over 10 min of CPU time)
+        local cputime
+        cputime=$(ps -p "$pid" -o cputime= 2>/dev/null | tr -d ' ')
+        if [[ -n "$cputime" ]]; then
+            # Parse MM:SS or HH:MM:SS format
+            local minutes
+            minutes=$(echo "$cputime" | awk -F: '{if(NF==2) print $1; else print $1*60+$2}')
+            if [[ "$minutes" -gt 10 ]]; then
+                return 1  # Unhealthy - spinning too long
+            fi
+        fi
+    fi
+    return 0
+}
+
+# Get status of a session: ALIVE, DEAD, ZOMBIE, or MISSING
+get_session_status() {
+    local name="$1"
+    local sock_file="${CT_DIR}/${name}.sock"
+    local pid_file="${CT_DIR}/${name}.pid"
+
+    if [[ ! -e "$sock_file" && ! -e "$pid_file" ]]; then
+        echo "MISSING"
+        return
+    fi
+
+    if [[ ! -e "$pid_file" ]]; then
+        echo "DEAD"  # Socket exists but no PID file
+        return
+    fi
+
+    local pid
+    pid=$(cat "$pid_file" 2>/dev/null)
+
+    if ! is_process_alive "$pid"; then
+        echo "DEAD"
+        return
+    fi
+
+    if ! is_process_healthy "$pid"; then
+        echo "ZOMBIE"
+        return
+    fi
+
+    echo "ALIVE"
+}
+
 usage() {
     cat <<EOF
 ct - ConnectTerm: Reliable terminal session manager
@@ -44,5 +114,10 @@ main() {
             ;;
     esac
 }
+
+# Allow sourcing for tests
+if [[ "${1:-}" == "--source-only" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 main "$@"
