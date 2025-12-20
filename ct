@@ -207,6 +207,16 @@ start_session() {
 
     if [[ "$status" == "ALIVE" ]]; then
         echo "Attaching to existing session '$name'..."
+        # Send current terminal size to session before attaching
+        if [[ -t 0 ]]; then
+            local rows cols
+            read rows cols < <(stty size 2>/dev/null)
+            if [[ -n "$rows" && -n "$cols" ]]; then
+                printf 'stty rows %d cols %d 2>/dev/null; kill -WINCH $$ 2>/dev/null\n' "$rows" "$cols" \
+                    | "$DTACH_BIN" -p "$sock_file" 2>/dev/null || true
+                sleep 0.1
+            fi
+        fi
         exec "$DTACH_BIN" -a "$sock_file" -r winch
     else
         echo "Creating new session '$name'..."
