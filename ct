@@ -221,7 +221,8 @@ start_session() {
     else
         echo "Creating new session '$name'..."
         # Start dtach and capture its PID
-        "$DTACH_BIN" -n "$sock_file" -r winch "$DEFAULT_SHELL"
+        # Use -l for login shell (starts in $HOME, sources .zprofile)
+        "$DTACH_BIN" -n "$sock_file" -r winch "$DEFAULT_SHELL" -l
 
         # Find the dtach master process and save PID
         sleep 0.3
