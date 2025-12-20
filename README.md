@@ -4,7 +4,9 @@ A reliable terminal session manager that wraps `dtach` to prevent zombie process
 
 ## The Problem This Solves
 
-When using `dtach` directly, closing a terminal window (especially from mobile apps like Termius) often leaves behind **zombie processes** that:
+> **Note:** This behavior has been observed specifically on **macOS with Apple Silicon** when using `dtach` with mobile terminal apps like Termius. I haven't tested dtach on other platforms, and this issue may be specific to this environment. dtach is a great tool - this wrapper just adds some extra safeguards for my particular use case.
+
+When using `dtach` directly on my setup, closing a terminal window (especially from mobile apps like Termius) sometimes leaves behind **zombie processes** that:
 - Spin at 100% CPU indefinitely
 - Corrupt socket state
 - Cause new sessions to show blank screens with just a cursor
@@ -22,7 +24,8 @@ When using `dtach` directly, closing a terminal window (especially from mobile a
 
 ```bash
 # Install
-cd /Users/jacobweeces/Documents/connectTerm
+git clone https://github.com/jacobWeeces/ct.git
+cd ct
 ./install.sh
 
 # Add to PATH (add this to ~/.zshrc for persistence)
