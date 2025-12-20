@@ -32,11 +32,11 @@ cd ct
 export PATH="${HOME}/.local/bin:${PATH}"
 
 # Use it
-ct voicebox          # Create or attach to 'voicebox' session
+ct example          # Create or attach to 'example' session
 # Press Ctrl+\ to detach (session keeps running)
-ct voicebox          # Reattach anytime
+ct example          # Reattach anytime
 ct -l                # List all sessions
-ct -k voicebox       # Kill a session
+ct -k example       # Kill a session
 ```
 
 ---
@@ -105,8 +105,8 @@ When you run `ct --list`, sessions can have these states:
 
 ```
 ~/.ct/                          # ct session directory (separate from ~/.dtach/)
-├── voicebox.sock              # Unix domain socket for dtach
-├── voicebox.pid               # PID of dtach master process
+├── example.sock              # Unix domain socket for dtach
+├── example.pid               # PID of dtach master process
 ├── work.sock
 ├── work.pid
 └── ...
@@ -188,7 +188,7 @@ ct <session>
 
 2. **Start a session:**
    ```bash
-   ct voicebox
+   ct example
    ```
 
 3. **Work in your terminal** - run commands, edit files, etc.
@@ -199,7 +199,7 @@ ct <session>
 
 5. **Later, reconnect** from anywhere:
    ```bash
-   ct voicebox    # Right back where you left off
+   ct example    # Right back where you left off
    ```
 
 ### Pro Tips
