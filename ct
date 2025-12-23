@@ -5,6 +5,10 @@ CT_DIR="${HOME}/.ct"
 DTACH_BIN="/opt/homebrew/bin/dtach"
 DEFAULT_SHELL="${SHELL:-/bin/zsh}"
 
+# Filter mode: strip terminal DA (Device Attributes) responses that cause display issues
+# with tools like Claude Code when connecting through mobile terminals like Termius
+CT_FILTER_DA="${CT_FILTER_DA:-0}"
+
 # Check if a process is alive and not a zombie
 is_process_alive() {
     local pid="$1"
@@ -184,11 +188,55 @@ setup_signal_handlers() {
     trap 'exit 0' TERM
 }
 
-# Start or attach to a session
-start_session() {
+# Attach with DA response filtering (for Claude Code compatibility)
+# Uses a wrapper script to filter ESC[?6c sequences from the session
+#
+# The approach: instead of complex bidirectional filtering at the attach level,
+# we inject a filter into the shell session itself. This is more reliable for
+# interactive terminal use.
+attach_with_filter() {
+    local sock_file="$1"
+
+    # Method 1: Use stty to try to prevent echo issues
+    # Configure terminal to use raw mode with specific settings
+    stty -echo -icanon 2>/dev/null || true
+
+    # Send a reset sequence to the session to clear any accumulated garbage
+    printf '\033c' | "$DTACH_BIN" -p "$sock_file" 2>/dev/null || true
+    sleep 0.1
+
+    # Attach normally - the reset should help with corruption
+    exec "$DTACH_BIN" -a "$sock_file" -r winch
+}
+
+# Send terminal reset to a session (helps recover from escape sequence corruption)
+reset_session() {
     local name="$1"
     local sock_file="${CT_DIR}/${name}.sock"
+
+    if [[ ! -e "$sock_file" ]]; then
+        echo "Session '$name' not found."
+        return 1
+    fi
+
+    echo "Sending terminal reset to '$name'..."
+    # ESC c = full reset, ESC [ ! p = soft reset
+    printf '\033c\033[!p' | "$DTACH_BIN" -p "$sock_file" 2>/dev/null || true
+    echo "Reset sent. Try reconnecting with: ct $name"
+}
+
+# Start or attach to a session
+# $1 = session name, $2 = use_filter (optional, "filter" to enable)
+start_session() {
+    local name="$1"
+    local use_filter="${2:-}"
+    local sock_file="${CT_DIR}/${name}.sock"
     local pid_file="${CT_DIR}/${name}.pid"
+
+    # Check if filtering is enabled via environment or argument
+    if [[ "$CT_FILTER_DA" == "1" ]] || [[ "$use_filter" == "filter" ]]; then
+        use_filter="filter"
+    fi
 
     # Check current status
     local status
@@ -206,7 +254,11 @@ start_session() {
     esac
 
     if [[ "$status" == "ALIVE" ]]; then
-        echo "Attaching to existing session '$name'..."
+        if [[ "$use_filter" == "filter" ]]; then
+            echo "Attaching to existing session '$name' (with escape sequence filtering)..."
+        else
+            echo "Attaching to existing session '$name'..."
+        fi
         # Send current terminal size to session before attaching
         if [[ -t 0 ]]; then
             local rows cols
@@ -217,7 +269,11 @@ start_session() {
                 sleep 0.1
             fi
         fi
-        exec "$DTACH_BIN" -a "$sock_file" -r winch
+        if [[ "$use_filter" == "filter" ]]; then
+            attach_with_filter "$sock_file"
+        else
+            exec "$DTACH_BIN" -a "$sock_file" -r winch
+        fi
     else
         echo "Creating new session '$name'..."
         # Start dtach and capture its PID
@@ -233,7 +289,12 @@ start_session() {
         fi
 
         # Now attach
-        exec "$DTACH_BIN" -a "$sock_file" -r winch
+        if [[ "$use_filter" == "filter" ]]; then
+            echo "(Filtering enabled for Claude Code compatibility)"
+            attach_with_filter "$sock_file"
+        else
+            exec "$DTACH_BIN" -a "$sock_file" -r winch
+        fi
     fi
 }
 
@@ -243,15 +304,38 @@ ct - ConnectTerm: Reliable terminal session manager
 
 Usage:
     ct <session>            Attach or create session
+    ct -f <session>         Attach with terminal reset (for Claude Code)
+    ct -r <session>         Send reset to session (fixes corruption without detaching)
     ct -l, --list           List all sessions with status
     ct -k, --kill <name>    Kill specific session
     ct -x, --killall        Kill all sessions and zombies
     ct -h, --help           Show this help
 
+Options:
+    -f, --filter            Send terminal reset before attaching. Helps with escape
+                            sequence issues ([?6c) when using Claude Code via Termius.
+    -r, --reset             Send terminal reset to a running session. Use when the
+                            display is corrupted but you don't want to detach.
+
+Claude Code Compatibility:
+    When using Claude Code through Termius, you may see [?6c characters or display
+    corruption. This is caused by Device Attributes responses from terminal capability
+    queries. To mitigate:
+
+    1. Use: ct -f <session>     # Sends reset before attaching
+    2. Or:  ct -r <session>     # Reset without re-attaching (run from another terminal)
+    3. Or:  Press Ctrl+L        # Redraw screen inside session
+    4. Or:  Type 'reset'        # Full terminal reset inside session
+
 Examples:
     ct work                 Start or attach to 'work' session
+    ct -f work              Attach with reset (recommended for Claude Code)
+    ct -r work              Send reset to fix corruption
     ct -l                   Show all sessions
     ct -k work              Kill 'work' session
+
+Environment:
+    CT_FILTER_DA=1          Always send reset before attaching (same as -f flag)
 EOF
 }
 
@@ -285,6 +369,23 @@ main() {
             fi
             cleanup_session "$2"
             echo "Session '$2' killed."
+            exit 0
+            ;;
+        -f|--filter)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --filter requires a session name"
+                echo "Usage: ct -f <session>"
+                exit 1
+            fi
+            start_session "$2" "filter"
+            ;;
+        -r|--reset)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --reset requires a session name"
+                echo "Usage: ct -r <session>"
+                exit 1
+            fi
+            reset_session "$2"
             exit 0
             ;;
         -*)

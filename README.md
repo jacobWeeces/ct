@@ -266,6 +266,37 @@ DEFAULT_SHELL="${SHELL:-/bin/zsh}"
 
 Or set the SHELL environment variable.
 
+### Claude Code displays `[?6c` characters or screen corruption
+
+When using Claude Code through Termius via ct, you may see repeated `[?6c` characters appearing, or the terminal display may become corrupted with garbage characters.
+
+**What's happening:**
+Claude Code's terminal UI (built on React/Ink) queries terminal capabilities by sending Device Attributes requests (`ESC[c`). Termius responds with `ESC[?6c` (indicating VT102 compatibility). These responses are sometimes echoed back as visible text instead of being silently consumed, and can accumulate causing display corruption.
+
+**Solutions:**
+
+1. **Use the `-f` flag** (recommended):
+   ```bash
+   ct -f <session>   # Sends terminal reset before attaching
+   ```
+
+2. **Reset without detaching** (from another terminal):
+   ```bash
+   ct -r <session>   # Sends reset to running session
+   ```
+
+3. **Manual reset inside the session:**
+   - Press `Ctrl+L` to redraw the screen
+   - Or type `reset` and press Enter for a full terminal reset
+
+4. **Environment variable for permanent fix:**
+   ```bash
+   export CT_FILTER_DA=1   # Add to ~/.zshrc
+   ```
+   This makes ct always send a reset before attaching.
+
+**Note:** This is a known issue with terminal capability queries through layered terminal emulators. The resets help recover from corruption but don't prevent the `[?6c` sequences entirely. If you find a better solution, please contribute!
+
 ---
 
 ## Technical Details
