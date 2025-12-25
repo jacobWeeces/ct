@@ -41,12 +41,15 @@ set -g default-terminal "xterm-256color"
 # Detach key: Ctrl+\ (same as dtach)
 # This overrides the default Ctrl+B prefix behavior
 unbind C-b
-set -g prefix C-\
-bind C-\ detach-client
+set -g prefix None
+bind-key -n C-\ detach-client
 
 # Disable confirmation prompts for a smoother experience
 bind-key & kill-window
 bind-key x kill-pane
+
+# Start shell as login shell
+set -g default-command "${SHELL} -l"
 EOF
 }
 
@@ -100,8 +103,8 @@ create_session() {
 
     # Create new session in detached mode with our config
     # -d = detached, -s = session name, -c = start directory
-    # Start shell as login shell (-l) to source profiles and start in $HOME
-    tmux -f "$CT_TMUX_CONF" new-session -d -s "$tmux_name" -c "$HOME" "$DEFAULT_SHELL -l"
+    # Shell is started as login shell via default-command in config
+    tmux -f "$CT_TMUX_CONF" new-session -d -s "$tmux_name" -c "$HOME"
 }
 
 # Attach to existing session
@@ -243,7 +246,9 @@ main() {
                 echo "Usage: ct -k <session>"
                 exit 1
             fi
-            kill_session "$2"
+            if ! kill_session "$2"; then
+                exit 1
+            fi
             exit 0
             ;;
         -*)
