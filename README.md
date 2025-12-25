@@ -1,22 +1,21 @@
 # ConnectTerm (ct)
 
-A reliable terminal session manager that wraps `dtach` to prevent zombie processes and provide seamless reconnection from mobile terminals like Termius.
+A reliable terminal session manager that uses `tmux` as a backend to provide seamless reconnection from mobile terminals like Termius.
 
 ## The Problem This Solves
 
-> **Note:** This behavior has been observed specifically on **macOS with Apple Silicon** when using `dtach` with mobile terminal apps like Termius. I haven't tested dtach on other platforms, and this issue may be specific to this environment. dtach is a great tool - this wrapper just adds some extra safeguards for my particular use case.
+> **Note:** ct originally used `dtach` as its backend but has been migrated to `tmux` to fix terminal freezing issues with tools like Claude Code. If you have existing dtach-based ct sessions, they will not work with the new tmux backend. Use `ct -x` to clean up old sessions if needed.
 
-When using `dtach` directly on my setup, closing a terminal window (especially from mobile apps like Termius) sometimes leaves behind **zombie processes** that:
-- Spin at 100% CPU indefinitely
-- Corrupt socket state
-- Cause new sessions to show blank screens with just a cursor
-- Require manual cleanup (`pkill`, removing socket files)
+When using terminal tools like Claude Code through mobile terminals (like Termius), raw `dtach` sessions experience:
+- Terminal freezes requiring session kills
+- Visual corruption from escape sequence handling
+- Device Attributes responses (`[?6c`) causing PTY issues
 
-**ConnectTerm fixes this** by:
-1. Properly handling terminal close signals (HUP, TERM)
-2. Automatically detecting and cleaning up zombie/dead sessions
-3. Tracking session health via PID files
-4. Providing a simple, reliable interface
+**ConnectTerm solves this** by:
+1. Using tmux's robust terminal emulator to handle escape sequences properly
+2. Providing a simple interface without requiring tmux knowledge
+3. Maintaining scrollback, mouse support, and system clipboard integration
+4. Making detached sessions just work across disconnections
 
 ---
 
@@ -48,23 +47,19 @@ ct -k example       # Kill a session
 | `ct <name>` | Attach to session `<name>`, or create it if it doesn't exist |
 | `ct -l` or `ct --list` | List all sessions with their status |
 | `ct -k <name>` or `ct --kill <name>` | Kill a specific session |
-| `ct -x` or `ct --killall` | Kill all ct-managed sessions (safe for ~/.dtach/) |
+| `ct -x` or `ct --killall` | Kill all ct-managed sessions |
 | `ct -h` or `ct --help` | Show help |
 
 ---
 
 ## Session States
 
-When you run `ct --list`, sessions can have these states:
+When you run `ct --list`, you'll see all active ct-managed tmux sessions. Sessions are either:
 
-| State | Symbol | Meaning |
-|-------|--------|---------|
-| ALIVE | ✓ | Session is running and healthy |
-| DEAD | ✗ | Socket exists but process is gone (will auto-clean on next attach) |
-| ZOMBIE | ⚠ | Process exists but is spinning at 100% CPU (will auto-clean) |
-| ORPHAN | ✗ | PID file exists but socket is missing |
+- **ALIVE**: Session is running and can be attached to
+- **DEAD**: Session has terminated (will be cleaned up automatically)
 
-**Auto-cleanup**: When you run `ct <name>` on a DEAD or ZOMBIE session, it automatically cleans up before creating a fresh session.
+tmux handles session lifecycle internally, so there's no manual cleanup needed for zombie or orphaned processes.
 
 ---
 
@@ -79,24 +74,25 @@ When you run `ct --list`, sessions can have these states:
 │                              ▼                               │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │                    ct (wrapper)                      │    │
-│  │  - Signal handling (HUP, TERM → clean exit)         │    │
-│  │  - Zombie detection before attach                    │    │
-│  │  - PID tracking in ~/.ct/<name>.pid                 │    │
+│  │  - Simple interface to tmux                          │    │
+│  │  - Session name mapping (work → ct-work)             │    │
+│  │  - Auto-generates tmux config                        │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                              │                               │
 │                              ▼                               │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │                  dtach (master)                      │    │
-│  │  - Manages PTY                                       │    │
-│  │  - Socket at ~/.ct/<name>.sock                      │    │
-│  │  - Survives terminal close                          │    │
+│  │                  tmux (server)                       │    │
+│  │  - Terminal emulator & session manager               │    │
+│  │  - Handles escape sequences properly                 │    │
+│  │  - Mouse support, scrollback, clipboard              │    │
+│  │  - Survives terminal close                           │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                              │                               │
 │                              ▼                               │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │                     Shell (zsh)                      │    │
-│  │  - Your actual terminal session                     │    │
-│  │  - Scrollback, history, etc.                        │    │
+│  │  - Your actual terminal session                      │    │
+│  │  - Scrollback, history, etc.                         │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -104,78 +100,63 @@ When you run `ct --list`, sessions can have these states:
 ### File Structure
 
 ```
-~/.ct/                          # ct session directory (separate from ~/.dtach/)
-├── example.sock              # Unix domain socket for dtach
-├── example.pid               # PID of dtach master process
-├── work.sock
-├── work.pid
-└── ...
+~/.ct/                          # ct configuration directory
+└── tmux.conf                 # Auto-generated tmux configuration
 ```
 
-### Key Difference from Raw dtach
+Sessions are managed entirely by tmux's internal server - no socket or PID files needed.
 
-| Behavior | Raw dtach | ct |
-|----------|-----------|-----|
-| Terminal close | Often creates zombie | Clean exit, session survives |
-| Dead session | Manual cleanup required | Auto-detects and cleans |
-| Session tracking | Socket files only | Socket + PID files |
-| Zombie detection | None | CPU% + process state monitoring |
-| Your ~/.dtach/ | - | Never touched |
+### Key Difference from Raw tmux
+
+| Behavior | Raw tmux | ct |
+|----------|----------|-----|
+| Session creation | `tmux new -s name` | `ct name` |
+| List sessions | `tmux ls` | `ct -l` |
+| Kill session | `tmux kill-session -t name` | `ct -k name` |
+| Configuration | Manual ~/.tmux.conf | Auto-generated in ~/.ct/ |
+| Learning curve | Requires prefix key knowledge | No tmux knowledge needed |
+| Detach key | Ctrl+B then D | Ctrl+\ (familiar to dtach users) |
 
 ---
 
 ## Under the Hood
 
-### Signal Handling
+### tmux Configuration
 
-When you close your terminal (Termius disconnect, window close, etc.), the system sends a `SIGHUP` signal. Without proper handling, this can leave dtach in a bad state.
-
-**ct handles this by:**
-```bash
-trap 'exit 0' HUP   # Terminal hangup → clean exit
-trap 'exit 0' TERM  # Termination request → clean exit
-```
-
-The key insight: the `ct` wrapper exits cleanly, but the **dtach master process** (which manages the actual shell) continues running independently.
-
-### Zombie Detection
-
-A "zombie" in this context is a dtach process that's:
-1. **Alive** (process exists, not in Z state)
-2. **Unhealthy** (spinning at >90% CPU for >10 minutes)
-
-The detection logic:
+ct auto-generates a tmux configuration file at `~/.ct/tmux.conf` with settings optimized for simplicity:
 
 ```bash
-# Check if process is alive (not actually a Unix zombie)
-is_process_alive() {
-    ps -p "$pid" -o state= | grep -qv "Z"  # Not in Zombie state
-}
-
-# Check if process is healthy (not spinning)
-is_process_healthy() {
-    cpu=$(ps -p "$pid" -o %cpu=)
-    cputime=$(ps -p "$pid" -o cputime=)
-    # If >90% CPU for >10 minutes of CPU time → unhealthy
-}
+set -g mouse on                    # Scroll/click works
+set -g history-limit 50000         # Large scrollback
+set -g set-clipboard on            # System clipboard integration
+set -g status off                  # No status bar (clean interface)
+set -g escape-time 0               # No Escape key delay
+set -g default-terminal "xterm-256color"  # Full color support
 ```
+
+The detach key is configured to `Ctrl+\` to match dtach behavior, so existing muscle memory works.
+
+### Session Management
+
+ct prefixes all session names with `ct-` to avoid collision with existing tmux sessions:
+- `ct work` creates/attaches to `ct-work` tmux session
+- `ct -l` shows only `ct-*` prefixed sessions
+- `ct -k work` kills the `ct-work` session
+
+This means you can use tmux directly for other purposes without interfering with ct-managed sessions.
 
 ### Attach-or-Create Flow
 
 ```
 ct <session>
     │
-    ├─► Get session status
+    ├─► Check if tmux session "ct-<session>" exists
     │       │
-    │       ├─► ALIVE → Attach to existing session
+    │       ├─► EXISTS → tmux attach -t ct-<session>
     │       │
-    │       ├─► DEAD/ZOMBIE → Clean up, then create new
-    │       │
-    │       └─► MISSING → Create new session
+    │       └─► MISSING → tmux new -s ct-<session>
     │
-    └─► Setup signal handlers
-        │
-        └─► exec dtach (replaces ct process)
+    └─► tmux handles all session lifecycle
 ```
 
 ---
@@ -218,26 +199,11 @@ ct <session>
 | **tmux** | Feature-rich, stable | Heavy, different UX, overkill for simple use |
 | **screen** | Battle-tested | Old, complex commands |
 | **abduco** | Modern dtach alternative | Same zombie issues on macOS |
-| **ct** | Simple, reliable, zombie-proof | Depends on dtach |
+| **ct** | Simple, reliable, tmux-powered without complexity | Requires tmux |
 
 ---
 
 ## Troubleshooting
-
-### "Blank screen with just a cursor"
-
-This was the original problem. With ct, this shouldn't happen. But if it does:
-
-```bash
-# Check what's running
-ct -l
-
-# If session shows ZOMBIE or DEAD, kill it
-ct -k <session-name>
-
-# Start fresh
-ct <session-name>
-```
 
 ### "ct: command not found"
 
@@ -248,15 +214,6 @@ export PATH="${HOME}/.local/bin:${PATH}"
 
 Add this line to `~/.zshrc` to make it permanent.
 
-### Session shows DEAD but I just created it
-
-The PID capture might have failed. This is rare but can happen on heavily loaded systems. The session still works - just the tracking is affected. Kill and recreate:
-
-```bash
-ct -k <name>
-ct <name>
-```
-
 ### I want to use a different shell
 
 Edit the ct script and change:
@@ -266,36 +223,20 @@ DEFAULT_SHELL="${SHELL:-/bin/zsh}"
 
 Or set the SHELL environment variable.
 
-### Claude Code displays `[?6c` characters or screen corruption
+### tmux shows "sessions should be nested with care"
 
-When using Claude Code through Termius via ct, you may see repeated `[?6c` characters appearing, or the terminal display may become corrupted with garbage characters.
+If you see this warning, you're trying to run tmux inside a tmux session. This is usually not what you want. Either:
+- Detach from the current session with `Ctrl+\`
+- Use a different session name
 
-**What's happening:**
-Claude Code's terminal UI (built on React/Ink) queries terminal capabilities by sending Device Attributes requests (`ESC[c`). Termius responds with `ESC[?6c` (indicating VT102 compatibility). These responses are sometimes echoed back as visible text instead of being silently consumed, and can accumulate causing display corruption.
+### Old dtach sessions not working
 
-**Solutions:**
+ct migrated from dtach to tmux. Old dtach-based sessions are incompatible. To clean them up:
 
-1. **Use the `-f` flag** (recommended):
-   ```bash
-   ct -f <session>   # Sends terminal reset before attaching
-   ```
-
-2. **Reset without detaching** (from another terminal):
-   ```bash
-   ct -r <session>   # Sends reset to running session
-   ```
-
-3. **Manual reset inside the session:**
-   - Press `Ctrl+L` to redraw the screen
-   - Or type `reset` and press Enter for a full terminal reset
-
-4. **Environment variable for permanent fix:**
-   ```bash
-   export CT_FILTER_DA=1   # Add to ~/.zshrc
-   ```
-   This makes ct always send a reset before attaching.
-
-**Note:** This is a known issue with terminal capability queries through layered terminal emulators. The resets help recover from corruption but don't prevent the `[?6c` sequences entirely. If you find a better solution, please contribute!
+```bash
+ct -x   # Kill all ct-managed sessions
+rm -rf ~/.ct/*.sock ~/.ct/*.pid   # Remove old dtach files
+```
 
 ---
 
@@ -306,32 +247,31 @@ Claude Code's terminal UI (built on React/Ink) queries terminal capabilities by 
 | File | Purpose |
 |------|---------|
 | `~/.local/bin/ct` | The installed script |
-| `~/.ct/*.sock` | Unix domain sockets for dtach communication |
-| `~/.ct/*.pid` | PID files for session tracking |
+| `~/.ct/tmux.conf` | Auto-generated tmux configuration |
 
 ### Dependencies
 
-- **dtach** - The underlying terminal detachment tool
-  - Location: `/opt/homebrew/bin/dtach` (Apple Silicon) or `/usr/local/bin/dtach` (Intel)
-  - Install: `brew install dtach`
+- **tmux** - Terminal multiplexer and session manager
+  - Location: `/opt/homebrew/bin/tmux` (Apple Silicon) or `/usr/local/bin/tmux` (Intel)
+  - Install: `brew install tmux`
 
-### Key dtach Options Used
+### Key tmux Features Used
 
-| Option | Meaning |
-|--------|---------|
-| `-n <socket>` | Create new session in background (no attach) |
-| `-a <socket>` | Attach to existing session |
-| `-A <socket>` | Attach or create (ct doesn't use this directly) |
-| `-r winch` | Redraw method: send SIGWINCH on attach |
+| Feature | Purpose |
+|---------|---------|
+| `new -A -s <name>` | Attach to session or create if missing |
+| `has-session -t <name>` | Check if session exists |
+| `list-sessions` | Show all active sessions |
+| `kill-session -t <name>` | Terminate specific session |
 
-### Signal Reference
+### Key Bindings
 
-| Signal | When Sent | ct Behavior |
-|--------|-----------|-------------|
-| SIGHUP | Terminal closed | Exit cleanly (session survives) |
-| SIGTERM | Kill request | Exit cleanly (session survives) |
-| SIGINT (Ctrl+C) | User interrupt | Passed through to shell |
-| Ctrl+\ | Detach key | dtach handles this |
+| Key | Action |
+|-----|--------|
+| Ctrl+\ | Detach from session (customized) |
+| Ctrl+C | Passed through to shell |
+| Mouse scroll | Scroll through terminal history |
+| Mouse select | Copy to system clipboard |
 
 ---
 
@@ -348,14 +288,15 @@ cd /Users/jacobweeces/Documents/connectTerm
 
 ```
 /Users/jacobweeces/Documents/connectTerm/
-├── ct                 # Main script (295 lines)
+├── ct                 # Main script
 ├── test_ct.sh         # Test suite
 ├── install.sh         # Installation script
 ├── README.md          # This file
 └── docs/
     └── plans/
         ├── 2024-12-19-connectterm-wrapper-design.md
-        └── 2024-12-19-connectterm-implementation.md
+        ├── 2024-12-19-connectterm-implementation.md
+        └── 2025-12-23-tmux-migration-design.md
 ```
 
 ### Contributing
@@ -364,20 +305,18 @@ The code is well-documented. Key functions:
 
 | Function | Purpose |
 |----------|---------|
-| `is_process_alive()` | Check if PID exists and isn't a zombie |
-| `is_process_healthy()` | Check if process isn't spinning at 100% CPU |
-| `get_session_status()` | Return ALIVE/DEAD/ZOMBIE/MISSING |
-| `cleanup_session()` | Kill process and remove files for one session |
-| `cleanup_all()` | Clean all ct sessions (never touches ~/.dtach/) |
-| `list_sessions()` | Display all sessions with status |
-| `setup_signal_handlers()` | Set up HUP/TERM traps |
-| `start_session()` | The main attach-or-create logic |
+| `ensure_tmux_config()` | Generate tmux configuration if needed |
+| `session_exists()` | Check if tmux session exists |
+| `list_sessions()` | Display all ct-managed sessions |
+| `kill_session()` | Terminate specific session |
+| `kill_all_sessions()` | Clean all ct sessions |
+| `attach_or_create()` | The main attach-or-create logic |
 
 ---
 
 ## License
 
-Personal use. Created to solve the dtach zombie problem for Termius access.
+Personal use. Created to provide reliable terminal sessions for Termius access.
 
 ---
 
@@ -385,5 +324,7 @@ Personal use. Created to solve the dtach zombie problem for Termius access.
 
 Built with the help of Claude (Anthropic) using the Superpowers workflow:
 - Brainstorming → Design → Plan → Execute → Review
+
+Originally implemented with dtach backend, migrated to tmux to fix terminal freezing issues with Claude Code and other terminal-intensive tools.
 
 The implementation follows test-driven development principles with code review after each task.
