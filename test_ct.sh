@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-# test_ct.sh - Basic tests for ct
+# test_ct.sh - Test suite for ct (tmux backend)
 
 CT_BIN="./ct"
 FAILURES=0
+TEST_SESSION_NAME="ct-test-$$"
+
+# Cleanup function to ensure test sessions are removed
+cleanup() {
+    tmux kill-session -t "ct-${TEST_SESSION_NAME}" 2>/dev/null || true
+}
+
+trap cleanup EXIT
 
 test_help() {
     echo -n "Test: --help shows usage... "
@@ -24,37 +32,10 @@ test_no_args() {
     fi
 }
 
-test_status_missing() {
-    echo -n "Test: missing session returns MISSING... "
-    # Source the functions
-    source ./ct --source-only 2>/dev/null || true
-    CT_DIR="/tmp/ct_test_$$"
-    mkdir -p "$CT_DIR"
-    local status
-    status=$(get_session_status "nonexistent")
-    rm -rf "$CT_DIR"
-    if [[ "$status" == "MISSING" ]]; then
-        echo "PASS"
-    else
-        echo "FAIL (got: $status)"
-        ((FAILURES++))
-    fi
-}
-
-test_killall() {
-    echo -n "Test: --killall runs without error... "
-    if $CT_BIN --killall >/dev/null 2>&1; then
-        echo "PASS"
-    else
-        echo "FAIL"
-        ((FAILURES++))
-    fi
-}
-
-test_list() {
-    echo -n "Test: --list runs without error... "
+test_list_format() {
+    echo -n "Test: --list shows 'ct sessions:' format... "
     output=$($CT_BIN --list 2>&1)
-    if echo "$output" | grep -q "Sessions in"; then
+    if echo "$output" | grep -q "ct sessions:"; then
         echo "PASS"
     else
         echo "FAIL (output: $output)"
@@ -62,12 +43,72 @@ test_list() {
     fi
 }
 
+test_kill_nonexistent() {
+    echo -n "Test: -k nonexistent returns error... "
+    if ! $CT_BIN -k "nonexistent-session-$$" >/dev/null 2>&1; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        ((FAILURES++))
+    fi
+}
+
+test_session_lifecycle() {
+    echo -n "Test: session creation, listing, and killing... "
+
+    # Create a session (detached)
+    if ! tmux -f "${HOME}/.ct/tmux.conf" new-session -d -s "ct-${TEST_SESSION_NAME}" 2>/dev/null; then
+        echo "FAIL (could not create session)"
+        ((FAILURES++))
+        return
+    fi
+
+    # Check if it appears in ct -l
+    if ! $CT_BIN -l 2>&1 | grep -q "$TEST_SESSION_NAME"; then
+        echo "FAIL (session not listed)"
+        ((FAILURES++))
+        tmux kill-session -t "ct-${TEST_SESSION_NAME}" 2>/dev/null || true
+        return
+    fi
+
+    # Kill the session using ct
+    if ! $CT_BIN -k "$TEST_SESSION_NAME" >/dev/null 2>&1; then
+        echo "FAIL (could not kill session)"
+        ((FAILURES++))
+        tmux kill-session -t "ct-${TEST_SESSION_NAME}" 2>/dev/null || true
+        return
+    fi
+
+    # Verify it's gone
+    if $CT_BIN -l 2>&1 | grep -q "$TEST_SESSION_NAME"; then
+        echo "FAIL (session still listed after kill)"
+        ((FAILURES++))
+        tmux kill-session -t "ct-${TEST_SESSION_NAME}" 2>/dev/null || true
+        return
+    fi
+
+    echo "PASS"
+}
+
+test_unknown_option() {
+    echo -n "Test: unknown option returns error... "
+    if ! $CT_BIN --invalid-option >/dev/null 2>&1; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        ((FAILURES++))
+    fi
+}
+
 # Run tests
+echo "Running ct test suite..."
+echo ""
 test_help
 test_no_args
-test_status_missing
-test_killall
-test_list
+test_list_format
+test_kill_nonexistent
+test_session_lifecycle
+test_unknown_option
 
 echo ""
 if [[ $FAILURES -eq 0 ]]; then

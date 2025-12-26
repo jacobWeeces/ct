@@ -4,7 +4,7 @@ A reliable terminal session manager that uses `tmux` as a backend to provide sea
 
 ## The Problem This Solves
 
-> **Note:** ct originally used `dtach` as its backend but has been migrated to `tmux` to fix terminal freezing issues with tools like Claude Code. If you have existing dtach-based ct sessions, they will not work with the new tmux backend. Use `ct -x` to clean up old sessions if needed.
+> **Note:** ct originally used `dtach` as its backend but has been migrated to `tmux` to fix terminal freezing issues with tools like Claude Code. If you have existing dtach-based ct sessions, they will not work with the new tmux backend.
 
 When using terminal tools like Claude Code through mobile terminals (like Termius), raw `dtach` sessions experience:
 - Terminal freezes requiring session kills
@@ -47,7 +47,6 @@ ct -k example       # Kill a session
 | `ct <name>` | Attach to session `<name>`, or create it if it doesn't exist |
 | `ct -l` or `ct --list` | List all sessions with their status |
 | `ct -k <name>` or `ct --kill <name>` | Kill a specific session |
-| `ct -x` or `ct --killall` | Kill all ct-managed sessions |
 | `ct -h` or `ct --help` | Show help |
 
 ---
@@ -231,10 +230,9 @@ If you see this warning, you're trying to run tmux inside a tmux session. This i
 
 ### Old dtach sessions not working
 
-ct migrated from dtach to tmux. Old dtach-based sessions are incompatible. To clean them up:
+ct migrated from dtach to tmux. Old dtach-based sessions are incompatible. To clean them up manually:
 
 ```bash
-ct -x   # Kill all ct-managed sessions
 rm -rf ~/.ct/*.sock ~/.ct/*.pid   # Remove old dtach files
 ```
 
@@ -305,12 +303,11 @@ The code is well-documented. Key functions:
 
 | Function | Purpose |
 |----------|---------|
-| `ensure_tmux_config()` | Generate tmux configuration if needed |
+| `generate_tmux_conf()` | Generate tmux configuration if needed |
 | `session_exists()` | Check if tmux session exists |
 | `list_sessions()` | Display all ct-managed sessions |
 | `kill_session()` | Terminate specific session |
-| `kill_all_sessions()` | Clean all ct sessions |
-| `attach_or_create()` | The main attach-or-create logic |
+| `start_session()` | The main attach-or-create logic |
 
 ---
 
