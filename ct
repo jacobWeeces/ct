@@ -42,7 +42,7 @@ set -g default-terminal "xterm-256color"
 # This overrides the default Ctrl+B prefix behavior
 unbind C-b
 set -g prefix None
-bind-key -n C-\ detach-client
+bind-key -n C-\\ detach-client
 
 # Disable confirmation prompts for a smoother experience
 bind-key & kill-window
